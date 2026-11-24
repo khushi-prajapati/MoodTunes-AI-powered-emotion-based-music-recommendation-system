@@ -1,0 +1,127 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-moodtunes}
+      POSTGRES_USER: ${POSTGRES_USER:-moodtunes}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-moodtunes}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-moodtunes} -d ${POSTGRES_DB:-moodtunes}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DEBUG: "False"
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: ${POSTGRES_DB:-moodtunes}
+      DB_USER: ${POSTGRES_USER:-moodtunes}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-moodtunes}
+      DB_HOST: db
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REDIS_CACHE_URL: redis://redis:6379/1
+      RUN_MIGRATIONS: "1"
+      COLLECT_STATIC: "1"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - backend_static:/app/staticfiles
+      - backend_media:/app/media
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/health/ || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+  celery:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    command: ["celery", "-A", "config", "worker", "-l", "INFO"]
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: ${POSTGRES_DB:-moodtunes}
+      DB_USER: ${POSTGRES_USER:-moodtunes}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-moodtunes}
+      DB_HOST: db
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REDIS_CACHE_URL: redis://redis:6379/1
+    depends_on:
+      - backend
+      - redis
+
+  celery-beat:
+    build:
+      context: ./backend
+    env_file:
+      - ./backend/.env
+    command: ["celery", "-A", "config", "beat", "-l", "INFO"]
+    environment:
+      DJANGO_SETTINGS_MODULE: config.settings
+      DB_ENGINE: django.db.backends.postgresql
+      DB_NAME: ${POSTGRES_DB:-moodtunes}
+      DB_USER: ${POSTGRES_USER:-moodtunes}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-moodtunes}
+      DB_HOST: db
+      DB_PORT: 5432
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      REDIS_CACHE_URL: redis://redis:6379/1
+    depends_on:
+      - backend
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - backend_media:/media:ro
+    ports:
+      - "5173:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_static:
+  backend_media:

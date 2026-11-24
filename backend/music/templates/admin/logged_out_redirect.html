@@ -1,0 +1,21 @@
+{% extends "admin/base_site.html" %}
+{% load moodtunes_admin %}
+{% frontend_site_url as frontend_url %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <meta http-equiv="refresh" content="0;url={{ frontend_url }}">
+{% endblock %}
+
+{% block content %}
+    <script>
+        window.location.replace('{{ frontend_url|escapejs }}');
+    </script>
+    <div class="card">
+        <div class="card-body">
+            <h4 class="mb-2">Logged out</h4>
+            <p class="text-muted">Redirecting you to the MoodTunes main site.</p>
+            <a href="{{ frontend_url }}" class="btn btn-primary">Go to main site</a>
+        </div>
+    </div>
+{% endblock %}
